@@ -1,8 +1,6 @@
+import dataclasses
 import json
 from dataclasses import dataclass, field
-
-import board
-import adafruit_am2320
 
 from hardware import ds18b20
 from hardware.am2315 import am2315
@@ -20,11 +18,11 @@ class SensorData:
             default=lambda o: o.__dict__,
             sort_keys=True,
             indent=4)
+    def to_dict(self):
+        return dataclasses.asdict(self)
 
 def get_sensor_data() -> SensorData:
-
     thSens = am2315()
-
     thDat = thSens.getTempHumid()
     data = SensorData()
     data.am2320_temp = thDat[0]

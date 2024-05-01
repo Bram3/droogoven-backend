@@ -1,45 +1,73 @@
-# main.py
-from fastapi import FastAPI, HTTPException, BackgroundTasks
-from pydantic import BaseModel
-import task_manager
+import json
+import logging
 
-app = FastAPI()
+import socketio
+from aiohttp import web
+import asyncio
 
-class Task(BaseModel):
-    temperature: float
-    duration: int  # Duration in seconds
+from logic import Logic
 
-@app.post("/task/")
-def create_task(task: Task, background_tasks: BackgroundTasks):
-    task_manager.start_task(task.temperature, task.duration)
-    background_tasks.add_task(task_manager.task_loop)
-    return {"detail": "Task started"}
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 
-@app.get("/task/")
-def get_current_task():
-    if task_manager.current_task is None:
-        raise HTTPException(status_code=404, detail="No current task")
-    return {
-        "temperature": task_manager.current_task.temperature,
-        "duration": task_manager.current_task.duration,
-        "start_time": task_manager.current_task.start_time
-    }
+# Create a Socket.IO server
+sio = socketio.AsyncServer(async_mode='aiohttp', cors_allowed_origins='*')
+app = web.Application()
+sio.attach(app)
+logic = Logic(sio)
 
-@app.put("/task/")
-def update_current_task(task: Task, background_tasks: BackgroundTasks):
-    task_manager.update_task(task.temperature, task.duration)
-    background_tasks.add_task(task_manager.task_loop)
-    return {
-        "temperature": task_manager.current_task.temperature,
-        "duration": task_manager.current_task.duration,
-        "start_time": task_manager.current_task.start_time
-    }
 
-@app.delete("/task/")
-def delete_current_task():
-    task_manager.stop_task()
-    return {"detail": "Task stopped and deleted"}
+@sio.event
+async def connect(sid, environ):
+    logging.info(f"Client connected {sid}")
 
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+
+@sio.event
+async def disconnect(sid):
+    logging.info(f"Client disconnected {sid}")
+
+
+@sio.event
+async def start_task(sid, data):
+    try:
+        logic.start(data)
+        await sio.emit('response', {'message': 'Task started successfully'}, to=sid)
+        await get_task_status(sid, "")
+    except ValueError as e:
+        await sio.emit('response-error', {'message': str(e)}, to=sid)
+
+
+@sio.event
+async def stop_task(sid, data):
+    logic.stop()
+    await sio.emit('response', {'message': 'Task stopped successfully'}, to=sid)
+
+
+@sio.event
+async def get_task_status(sid, data):
+    task = logic.get_current_task()
+    await sio.emit('task_status', task, to=sid)
+
+
+async def start_background_tasks(app):
+    app['logic_task'] = asyncio.create_task(logic.logic_loop())
+
+
+async def cleanup_background_tasks(app):
+    app['logic_task'].cancel()
+    await app['logic_task']
+
+
+async def current_task_handler(request):
+    task = logic.get_current_task()
+    if task:
+        return web.Response(text=json.dumps(task), content_type='application/json')
+    else:
+        return web.Response(text=json.dumps({'message': 'No active task'}), content_type='application/json', status=404)
+
+
+app.on_startup.append(start_background_tasks)
+app.on_cleanup.append(cleanup_background_tasks)
+
+if __name__ == '__main__':
+    logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+    web.run_app(app, port=8080)
