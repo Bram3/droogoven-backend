@@ -5,9 +5,8 @@ import time
 base_dir = '/sys/bus/w1/devices/'
 
 def read_temp_raw(device_file):
-    f = open(device_file, 'r')
-    lines = f.readlines()
-    f.close()
+    with open(device_file, 'r') as f:
+        lines = f.readlines()
     return lines
 
 
