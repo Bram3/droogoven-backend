@@ -1,4 +1,4 @@
 aiohttp~=3.9.5
 pydantic~=2.7.1
-pcf8574_io
 quick2wire
+adafruit-circuitpython-pcf8574
