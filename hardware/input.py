@@ -7,9 +7,13 @@ from hardware.am2315 import am2315
 
 @dataclass
 class SensorData:
-    am2320_temp: float = 0.0
-    am2320_humidity: float = 0.0
-    ow_temps: list = field(default_factory=list)
+    temperature: float = 0.0
+    humidity: float = 0.0
+    ow1: float = 0.0
+    ow2: float = 0.0
+    ow3: float = 0.0
+    ow4: float = 0.0
+    ow5: float = 0.0
     average_temp: float = 0.0
 
     def to_json(self):
@@ -25,9 +29,14 @@ def get_sensor_data() -> SensorData:
     thSens = am2315()
     thDat = thSens.getTempHumid()
     data = SensorData()
-    data.am2320_temp = thDat[0]
-    data.am2320_humidity = thDat[1]
-    data.ow_temps = ds18b20.read_all()
-    data.average_temp = round((sum(data.ow_temps) + data.am2320_temp) / (len(data.ow_temps) + 1) * 1000) / 1000
+    data.temperature = thDat[0]
+    data.humidity = thDat[1]
+    ow_temps = ds18b20.read_all()
+    data.ow1 = ow_temps[0]
+    data.ow2 = ow_temps[1]
+    data.ow3 = ow_temps[2]
+    data.ow4 = ow_temps[3]
+    data.ow5 = ow_temps[4]
+    data.average_temp = round((sum(ow_temps) + data.temperature) / (len(ow_temps) + 1) * 1000) / 1000
 
     return data

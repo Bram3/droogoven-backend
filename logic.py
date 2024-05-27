@@ -9,11 +9,12 @@ from flask_socketio import SocketIO
 from pydantic import BaseModel, Field
 
 import hardware
-
+import sqlite3
 
 i2c = board.I2C()  # uses board.SCL and board.SDA
 # i2c = board.STEMMA_I2C()  # For using the built-in STEMMA QT connector on a microcontroller
 pcf = adafruit_pcf8574.PCF8574(i2c)
+
 
 class Task(BaseModel):
     days: int = Field(default=0, ge=0)
@@ -37,16 +38,45 @@ class Task(BaseModel):
 
 
 class Logic:
-    def __init__(self, sio: SocketIO):
+    def __init__(self, sio: SocketIO, db_path="data2.db"):
         self.sio = sio
         self.current_task: Task = None
         self.cooler_cycle_status = False
         self.cooler_off_start_time = None
         self.cooler_on_start_time = None
+        self.connection = sqlite3.connect(db_path, detect_types=sqlite3.PARSE_DECLTYPES | sqlite3.PARSE_COLNAMES)
+        self.connection.row_factory = sqlite3.Row  # This allows dictionary access to rows
+        self.initialize_db()
+
+    def initialize_db(self):
+        """Initializes the database by creating necessary tables if they do not already exist."""
+        with self.connection as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS SensorData (
+                    timestamp DATETIME PRIMARY KEY,
+                    temperature REAL,
+                    humidity REAL,
+                    ow1 REAL,
+                    ow2 REAL,
+                    ow3 REAL,
+                    ow4 REAL,
+                    ow5 REAL
+                );
+            """)
+            conn.commit()
+
+    def get_sensor_data_for_period(self, days):
+        with self.connection as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT * FROM SensorData 
+                WHERE timestamp >= datetime('now', ?)
+            """, ('-' + str(days) + ' day',))
+            return [dict(row) for row in cursor.fetchall()]
 
     def start(self, task_data):
         try:
-            print(task_data)
             task = Task(**task_data)
             self.current_task = task
             self.cooler_cycle_status = False
@@ -82,26 +112,30 @@ class Logic:
             fan_pin = pcf.get_pin(5)
             fan_pin.switch_to_output(value=True)
             fan_pin.value = fan
+
     async def logic_loop(self):
         while True:
             sensor_data = hardware.get_sensor_data()
             await self.sio.emit('sensor_state', sensor_data.to_dict())
-
+            with self.connection as conn:
+                cursor = conn.cursor()
+                cursor.execute(
+                    "INSERT INTO SensorData (timestamp, temperature, humidity, ow1, ow2, ow3, ow4, ow5) VALUES (?, ?, ?, ?,?,?,?,?)",
+                    (datetime.datetime.now(), sensor_data.temperature, sensor_data.humidity, sensor_data.ow1,
+                     sensor_data.ow2, sensor_data.ow3, sensor_data.ow4, sensor_data.ow5))
+                conn.commit()
             if self.current_task:
                 if not self.current_task.never_ending and datetime.datetime.utcnow() >= self.current_task.end_time():
                     logging.info("Task has expired")
                     await self.sio.emit("task_done", {"message": "Task has finished."})
                     self.stop()
                 else:
-                    logging.info("loop")
-
-                    cooler_temp = sensor_data.ow_temps[3]
 
                     # Manage Cooler Cycle
                     if not self.cooler_cycle_status:
                         # Cooling Off State
-                        heater = sensor_data.am2320_temp < self.current_task.temp_low
-                        if sensor_data.am2320_temp > self.current_task.temp_high:
+                        heater = sensor_data.temperature < self.current_task.temp_low
+                        if sensor_data.temperature > self.current_task.temp_high:
                             heater = False
                         fan = True
                         cooler = False

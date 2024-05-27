@@ -25,6 +25,15 @@ async def connect(sid, environ):
 async def disconnect(sid):
     logging.info(f"Client disconnected {sid}")
 
+@sio.event
+async def get_sensors_24h(sid, data):
+    sensor_data = logic.get_sensor_data_for_period(1)  # last 24 hours
+    await sio.emit('sensor_data_24h', sensor_data, to=sid)
+
+@sio.event
+async def get_sensors_7d(sid, data):
+    sensor_data = logic.get_sensor_data_for_period(7)  # last 7 days
+    await sio.emit('sensor_data_7d', sensor_data, to=sid)
 
 @sio.event
 async def start_task(sid, data):
