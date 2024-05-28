@@ -69,10 +69,34 @@ class Logic:
     def get_sensor_data_for_period(self, days):
         with self.connection as conn:
             cursor = conn.cursor()
+            # First, count the total number of entries for the specified period.
             cursor.execute("""
-                SELECT * FROM SensorData 
+                SELECT COUNT(*) FROM SensorData
                 WHERE timestamp >= datetime('now', ?)
             """, ('-' + str(days) + ' day',))
+            count = cursor.fetchone()[0]
+
+            # Calculate the number of rows to skip to average down to about 1000 entries
+            step = max(1, count // 1000)
+
+            # Retrieve and average data if needed
+            cursor.execute("""
+                SELECT
+                    MIN(timestamp) as timestamp,
+                    AVG(column1) as avg_column1,
+                    AVG(column2) as avg_column2,
+                    -- Add other necessary columns here
+                    COUNT(*) as count
+                FROM (
+                    SELECT *,
+                        ROW_NUMBER() OVER (ORDER BY timestamp) as rownum
+                    FROM SensorData
+                    WHERE timestamp >= datetime('now', ?)
+                )
+                WHERE rownum % ? = 0
+                GROUP BY (rownum - 1) / ?
+            """, ('-' + str(days) + ' day', step, step))
+
             return [dict(row) for row in cursor.fetchall()]
 
     def start(self, task_data):
