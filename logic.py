@@ -83,9 +83,13 @@ class Logic:
             cursor.execute("""
                 SELECT
                     MIN(timestamp) as timestamp,
-                    AVG(column1) as avg_column1,
-                    AVG(column2) as avg_column2,
-                    -- Add other necessary columns here
+                    AVG(temperature) as temperature,
+                    AVG(humidity)  as humidity,
+                    AVG(ow1) as ow1,
+                    AVG(ow2) as ow2,
+                    AVG(ow3) as ow3,
+                    AVG(ow4) as ow4,
+                    AVG(ow5) as ow5,
                     COUNT(*) as count
                 FROM (
                     SELECT *,
@@ -96,7 +100,6 @@ class Logic:
                 WHERE rownum % ? = 0
                 GROUP BY (rownum - 1) / ?
             """, ('-' + str(days) + ' day', step, step))
-
             return [dict(row) for row in cursor.fetchall()]
 
     def start(self, task_data):
