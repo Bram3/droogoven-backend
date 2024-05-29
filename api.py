@@ -1,25 +1,26 @@
-import json
+import asyncio
 import logging
 
 import socketio
 from aiohttp import web
-import asyncio
 
 from logic import Logic
 
+# Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 
-# Create a Socket.IO server
+# Create a Socket.IO server and attach it to a web application
 sio = socketio.AsyncServer(async_mode='aiohttp', cors_allowed_origins='*')
 app = web.Application()
 sio.attach(app)
+
+# Initialize the Logic class
 logic = Logic(sio)
 
-
+# Define event handlers for Socket.IO events
 @sio.event
 async def connect(sid, environ):
     logging.info(f"Client connected {sid}")
-
 
 @sio.event
 async def disconnect(sid):
@@ -27,12 +28,12 @@ async def disconnect(sid):
 
 @sio.event
 async def get_sensors_24h(sid, data):
-    sensor_data = logic.get_sensor_data_for_period(1)  # last 24 hours
+    sensor_data = logic.get_sensor_data_for_period(1)  # Last 24 hours
     await sio.emit('sensor_data_24h', sensor_data, to=sid)
 
 @sio.event
 async def get_sensors_7d(sid, data):
-    sensor_data = logic.get_sensor_data_for_period(7)  # last 7 days
+    sensor_data = logic.get_sensor_data_for_period(7)  # Last 7 days
     await sio.emit('sensor_data_7d', sensor_data, to=sid)
 
 @sio.event
@@ -44,39 +45,28 @@ async def start_task(sid, data):
     except ValueError as e:
         await sio.emit('response-error', {'message': str(e)}, to=sid)
 
-
 @sio.event
 async def stop_task(sid, data):
     logic.stop()
     await sio.emit('response', {'message': 'Task stopped successfully'}, to=sid)
-
 
 @sio.event
 async def get_task_status(sid, data):
     task = logic.get_current_task()
     await sio.emit('task_status', task, to=sid)
 
-
+# Define background tasks
 async def start_background_tasks(app):
     app['logic_task'] = asyncio.create_task(logic.logic_loop())
-
 
 async def cleanup_background_tasks(app):
     app['logic_task'].cancel()
     await app['logic_task']
 
-
-async def current_task_handler(request):
-    task = logic.get_current_task()
-    if task:
-        return web.Response(text=json.dumps(task), content_type='application/json')
-    else:
-        return web.Response(text=json.dumps({'message': 'No active task'}), content_type='application/json', status=404)
-
-
+# Set up background tasks
 app.on_startup.append(start_background_tasks)
 app.on_cleanup.append(cleanup_background_tasks)
 
+# Run the web application
 if __name__ == '__main__':
-    logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
     web.run_app(app, port=8080)
